@@ -1,0 +1,70 @@
+name: HF Spaces Keep Alive
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+    inputs:
+      spaces:
+        description: 'HuggingFace Spaces URLs (comma separated)'
+        required: false
+        default: ''
+
+env:
+  SPACES: ${{ github.event.inputs.spaces || 'https://huggingface.co/spaces' }}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Read spaces from config
+        id: config
+        run: |
+          if [ -f spaces.txt ]; then
+            SPACES_FILE=$(cat spaces.txt | grep -v '^#' | grep -v '^$' | tr '\n' ',')
+            echo "spaces=$SPACES_FILE" >> $GITHUB_OUTPUT
+          else
+            echo "spaces=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ping HuggingFace Spaces
+        id: ping
+        run: |
+          SPACES_LIST="${SPACES},${{ steps.config.outputs.spaces }}"
+          SPACES_LIST=$(echo "$SPACES_LIST" | sed 's/,,/,/g' | sed 's/^,//' | sed 's/,$//')
+          
+          echo "Pinging spaces: $SPACES_LIST"
+          
+          RESULTS='[]'
+          IFS=',' read -ra ARR <<< "$SPACES_LIST"
+          for space in "${ARR[@]}"; do
+            space=$(echo "$space" | xargs)
+            if [ -n "$space" ]; then
+              echo "Pinging: $space"
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$space" || echo "000")
+              echo "  $space -> $STATUS"
+              RESULTS=$(echo "$RESULTS" | jq --arg url "$space" --argjson status "$STATUS" '. + [{"url": $url, "status": $status}]')
+              sleep 2
+            fi
+          done
+          
+          TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          JSON=$(jq -n --argjson results "$RESULTS" --arg time "$TIME" '{results: $results, time: $time}')
+          echo "$JSON" > status.json
+          cat status.json
+
+      - name: Commit and push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git diff --staged --quiet || git commit -m "Update status $(date)"
+          git push

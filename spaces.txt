@@ -1,0 +1,8 @@
+# HuggingFace Spaces URLs to keep alive (one per line)
+# Example:
+# https://huggingface.co/spaces/username/space-name
+# https://huggingface.co/spaces/another/space
+
+# Add your spaces below:
+https://huggingface.co/spaces
+https://jyujiaf-ai.hf.space
